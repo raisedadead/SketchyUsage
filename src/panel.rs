@@ -8,7 +8,8 @@ use futures::{
 use gpui::{
     ActivationPolicy, App, AsyncApp, Bounds, Context, Div, FocusHandle, FontWeight, KeyBinding,
     QuitMode, Render, Subscription, Task, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*, px, rgb, size,
+    WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*, px, relative, rgb,
+    size,
 };
 use objc2::{rc::Retained, runtime::AnyObject};
 use objc2_app_kit::{NSEvent, NSEventMask, NSScreen};
@@ -16,7 +17,7 @@ use objc2_foundation::MainThreadMarker;
 
 use crate::{
     bar,
-    format::{self, Line, ProviderView, Tone},
+    format::{self, Icon, Line, ProviderView, Tone},
     geometry::{self, Rect},
     palette::{PEACH, RED, TEAL, YELLOW},
     server::{self, PROVIDERS, Server},
@@ -31,13 +32,26 @@ const LINE: f32 = 20.0;
 const SECTION_GAP: f32 = 12.0;
 const BORDER: f32 = 1.0;
 const FONT: &str = "Berkeley Mono";
+const ICONS: &str = "Symbols Nerd Font Mono";
+const BAR: f32 = 6.0;
+const PERCENT: f32 = 36.0;
+
+const RESET: &str = "\u{F099B}";
+const CREDITS: &str = "\u{F0516}";
 
 const MANTLE: u32 = 0x181825;
 const SURFACE2: u32 = 0x585b70;
 const TEXT: u32 = 0xcdd6f4;
 const SUBTEXT: u32 = 0xa6adc8;
+const SURFACE0: u32 = 0x313244;
 
 type Handler = RcBlock<dyn Fn(NonNull<NSEvent>)>;
+
+#[derive(Clone, Copy)]
+struct Fonts {
+    text: Option<&'static str>,
+    icons: bool,
+}
 
 pub enum Event {
     Toggle,
@@ -64,7 +78,7 @@ struct Panel {
     server: Arc<Server>,
     sender: UnboundedSender<Event>,
     generation: u64,
-    font: Option<&'static str>,
+    fonts: Fonts,
     focus: FocusHandle,
     _activation: Subscription,
     _ticker: Task<()>,
@@ -80,12 +94,11 @@ pub fn run(
         .run(move |cx: &mut App| {
             cx.set_activation_policy(ActivationPolicy::Accessory);
             cx.bind_keys([KeyBinding::new("escape", Close, None)]);
-            let font = cx
-                .text_system()
-                .all_font_names()
-                .iter()
-                .any(|name| name == FONT)
-                .then_some(FONT);
+            let names = cx.text_system().all_font_names();
+            let fonts = Fonts {
+                text: names.iter().any(|name| name == FONT).then_some(FONT),
+                icons: names.iter().any(|name| name == ICONS),
+            };
             cx.spawn(async move |cx| {
                 let mut open: Option<Open> = None;
                 let mut generation = 0;
@@ -98,7 +111,7 @@ pub fn run(
                                 continue;
                             }
                             generation += 1;
-                            open = show(cx, &server, &sender, generation, font).await;
+                            open = show(cx, &server, &sender, generation, fonts).await;
                         }
                         Event::MouseDown(x, y) => {
                             if let Some(current) = open.take_if(|current| !current.ignores(x, y)) {
@@ -123,7 +136,7 @@ async fn show(
     server: &Arc<Server>,
     sender: &UnboundedSender<Event>,
     generation: u64,
-    font: Option<&'static str>,
+    fonts: Fonts,
 ) -> Option<Open> {
     let mouse = mouse().unwrap_or_default();
     let segments = cx
@@ -160,7 +173,7 @@ async fn show(
     let events = sender.clone();
     let opened = cx.update(|cx| {
         cx.open_window(options, move |window, cx| {
-            cx.new(|cx| Panel::new(server, events, generation, font, window, cx))
+            cx.new(|cx| Panel::new(server, events, generation, fonts, window, cx))
         })
     });
     let handle = match opened {
@@ -228,7 +241,7 @@ impl Panel {
         server: Arc<Server>,
         sender: UnboundedSender<Event>,
         generation: u64,
-        font: Option<&'static str>,
+        fonts: Fonts,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -252,7 +265,7 @@ impl Panel {
             server,
             sender,
             generation,
-            font,
+            fonts,
             focus,
             _activation: activation,
             _ticker: ticker,
@@ -288,15 +301,16 @@ impl Render for Panel {
             .text_color(rgb(TEXT))
             .text_size(px(13.0))
             .line_height(px(LINE));
-        let root = match self.font {
+        let root = match self.fonts.text {
             Some(font) => root.font_family(font),
             None => root,
         };
-        root.children(views.iter().map(|(id, view)| section(id, view)))
+        let icons = self.fonts.icons;
+        root.children(views.iter().map(|(id, view)| section(id, view, icons)))
     }
 }
 
-fn section(id: &str, view: &ProviderView) -> Div {
+fn section(id: &str, view: &ProviderView, icons: bool) -> Div {
     let accent = if id == "claude" { PEACH } else { TEAL };
     div()
         .flex()
@@ -311,19 +325,34 @@ fn section(id: &str, view: &ProviderView) -> Div {
             div()
                 .child(row(
                     div().child(window.label.clone()),
-                    text(&window.remaining),
+                    if icons {
+                        labelled(Some(RESET), &window.reset, SUBTEXT)
+                    } else {
+                        labelled(None, &format!("reset {}", window.reset), SUBTEXT)
+                    },
                 ))
-                .child(row(
-                    div().text_color(rgb(SUBTEXT)).child(window.reset.clone()),
-                    text(&window.burn),
-                ))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .whitespace_nowrap()
+                        .child(bar(window.fill, color(window.remaining.tone, accent)))
+                        .child(
+                            text(&window.remaining, icons)
+                                .flex_none()
+                                .w(px(PERCENT))
+                                .justify_end(),
+                        )
+                        .child(text(&window.burn, icons).flex_none()),
+                )
         }))
         .children(
             view.credits
-                .clone()
-                .map(|credits| div().text_color(rgb(SUBTEXT)).truncate().child(credits)),
+                .as_deref()
+                .map(|credits| labelled(icons.then_some(CREDITS), credits, SUBTEXT)),
         )
-        .children(view.notes.iter().map(|note| text(note).truncate()))
+        .children(view.notes.iter().map(|note| text(note, icons)))
 }
 
 fn row(left: Div, right: Div) -> Div {
@@ -336,15 +365,51 @@ fn row(left: Div, right: Div) -> Div {
         .child(right)
 }
 
-fn text(line: &Line) -> Div {
-    let color = match line.tone {
-        Tone::Text => TEXT,
+fn bar(fill: f32, color: u32) -> Div {
+    div()
+        .flex_1()
+        .h(px(BAR))
+        .rounded_full()
+        .bg(rgb(SURFACE0))
+        .child(
+            div()
+                .h_full()
+                .w(relative(fill))
+                .rounded_full()
+                .bg(rgb(color)),
+        )
+}
+
+fn text(line: &Line, icons: bool) -> Div {
+    let glyph = line.icon.filter(|_| icons).map(glyph);
+    labelled(glyph, &line.text, color(line.tone, TEXT))
+}
+
+fn labelled(glyph: Option<&'static str>, text: &str, color: u32) -> Div {
+    div()
+        .flex()
+        .gap_1()
+        .min_w(px(0.0))
+        .whitespace_nowrap()
+        .text_color(rgb(color))
+        .children(glyph.map(|glyph| div().flex_none().font_family(ICONS).child(glyph)))
+        .child(div().min_w(px(0.0)).truncate().child(text.to_string()))
+}
+
+fn color(tone: Tone, normal: u32) -> u32 {
+    match tone {
+        Tone::Text => normal,
         Tone::Subtle => SUBTEXT,
         Tone::Warn => YELLOW,
         Tone::Alert => RED,
-    };
-    div()
-        .whitespace_nowrap()
-        .text_color(rgb(color))
-        .child(line.text.clone())
+    }
+}
+
+fn glyph(icon: Icon) -> &'static str {
+    match icon {
+        Icon::Alert => "\u{F002A}",
+        Icon::Check => "\u{F012C}",
+        Icon::Wait => "\u{F051F}",
+        Icon::Clock => "\u{F0150}",
+    }
 }

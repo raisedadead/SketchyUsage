@@ -12,21 +12,31 @@ pub enum Tone {
     Alert,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Icon {
+    Alert,
+    Check,
+    Wait,
+    Clock,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
     pub text: String,
     pub tone: Tone,
+    pub icon: Option<Icon>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct WindowView {
     pub label: String,
     pub remaining: Line,
+    pub fill: f32,
     pub reset: String,
     pub burn: Line,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProviderView {
     pub name: String,
     pub windows: Vec<WindowView>,
@@ -57,28 +67,29 @@ pub fn duration(seconds: i64) -> String {
 
 pub fn reset(resets_at: Option<i64>, now: i64) -> String {
     match resets_at {
-        None => "reset unknown".into(),
-        Some(at) if at <= now => "reset passed".into(),
-        Some(at) => format!("resets in {}", duration(at - now)),
+        None => "unknown".into(),
+        Some(at) if at <= now => "passed".into(),
+        Some(at) => duration(at - now),
     }
 }
 
 pub fn burn(projection: Option<Projection>, now: i64) -> Line {
     match projection {
-        None => line("not enough data", Tone::Subtle),
-        Some(projection) if projection.before_reset => line(
-            &format!(
-                "runs out in {} — before reset",
-                duration(projection.exhausted_at - now)
-            ),
+        None => marked(Icon::Wait, "no trend", Tone::Subtle),
+        Some(projection) if projection.before_reset => marked(
+            Icon::Alert,
+            &format!("out in {}", duration(projection.exhausted_at - now)),
             Tone::Warn,
         ),
-        Some(_) => line("lasts until reset", Tone::Subtle),
+        Some(_) => marked(Icon::Check, "lasts", Tone::Subtle),
     }
 }
 
 pub fn credits(credits: &ResetCredits, now: i64) -> String {
-    let base = format!("Reset credits: {} available", credits.available);
+    let base = match credits.available {
+        1 => "1 reset credit".to_string(),
+        count => format!("{count} reset credits"),
+    };
     match credits.nearest_expiry {
         Some(at) if at > now => format!("{base} · next expires in {}", duration(at - now)),
         _ => base,
@@ -107,7 +118,13 @@ pub fn provider(id: &str, provider: Option<&Provider>, now: i64) -> ProviderView
             let remaining = match window.remaining {
                 _ if !current => line("—", Tone::Subtle),
                 left if left <= 10 => line(&format!("{left}%"), Tone::Alert),
+                left if left <= 25 => line(&format!("{left}%"), Tone::Warn),
                 left => line(&format!("{left}%"), Tone::Text),
+            };
+            let fill = if current {
+                f32::from(window.remaining.min(100)) / 100.0
+            } else {
+                1.0
             };
             let projection = current
                 .then(|| burn::project(&provider.samples_for(window), window.resets_at))
@@ -115,6 +132,7 @@ pub fn provider(id: &str, provider: Option<&Provider>, now: i64) -> ProviderView
             WindowView {
                 label: window.label.clone(),
                 remaining,
+                fill,
                 reset: reset(window.resets_at, now),
                 burn: burn(projection, now),
             }
@@ -122,11 +140,12 @@ pub fn provider(id: &str, provider: Option<&Provider>, now: i64) -> ProviderView
         .collect();
     let mut notes = vec![];
     if let Some(error) = &provider.error {
-        notes.push(line(error, Tone::Warn));
+        notes.push(marked(Icon::Alert, error, Tone::Warn));
     }
     match provider.updated_at {
         Some(at) if now - at > STALE_AFTER => {
-            notes.push(line(
+            notes.push(marked(
+                Icon::Clock,
                 &format!("data is {} old", duration(now - at)),
                 Tone::Warn,
             ));
@@ -149,6 +168,14 @@ fn line(text: &str, tone: Tone) -> Line {
     Line {
         text: text.into(),
         tone,
+        icon: None,
+    }
+}
+
+fn marked(icon: Icon, text: &str, tone: Tone) -> Line {
+    Line {
+        icon: Some(icon),
+        ..line(text, tone)
     }
 }
 
@@ -188,21 +215,24 @@ mod tests {
 
     #[test]
     fn resets_count_down_until_they_pass() {
-        assert_eq!(reset(Some(NOW + 3 * 3600 + 720), NOW), "resets in 3h 12m");
-        assert_eq!(reset(Some(NOW), NOW), "reset passed");
-        assert_eq!(reset(None, NOW), "reset unknown");
+        assert_eq!(reset(Some(NOW + 3 * 3600 + 720), NOW), "3h 12m");
+        assert_eq!(reset(Some(NOW), NOW), "passed");
+        assert_eq!(reset(None, NOW), "unknown");
     }
 
     #[test]
     fn burn_lines_describe_the_projection() {
-        assert_eq!(burn(None, NOW), line("not enough data", Tone::Subtle));
+        assert_eq!(
+            burn(None, NOW),
+            marked(Icon::Wait, "no trend", Tone::Subtle)
+        );
         let early = Projection {
             exhausted_at: NOW + 86_400 + 3 * 3600,
             before_reset: true,
         };
         assert_eq!(
             burn(Some(early), NOW),
-            line("runs out in 1d 3h — before reset", Tone::Warn)
+            marked(Icon::Alert, "out in 1d 3h", Tone::Warn)
         );
         let late = Projection {
             exhausted_at: NOW + 86_400,
@@ -210,7 +240,7 @@ mod tests {
         };
         assert_eq!(
             burn(Some(late), NOW),
-            line("lasts until reset", Tone::Subtle)
+            marked(Icon::Check, "lasts", Tone::Subtle)
         );
     }
 
@@ -222,20 +252,21 @@ mod tests {
         };
         assert_eq!(
             credits(&credits_left, NOW),
-            "Reset credits: 2 available · next expires in 5d 0h"
+            "2 reset credits · next expires in 5d 0h"
         );
         credits_left.nearest_expiry = Some(NOW);
-        assert_eq!(credits(&credits_left, NOW), "Reset credits: 2 available");
+        assert_eq!(credits(&credits_left, NOW), "2 reset credits");
         credits_left.nearest_expiry = None;
-        assert_eq!(credits(&credits_left, NOW), "Reset credits: 2 available");
+        assert_eq!(credits(&credits_left, NOW), "2 reset credits");
     }
 
     #[test]
-    fn remaining_turns_red_at_ten_percent_and_blanks_after_a_reset() {
+    fn remaining_warns_at_a_quarter_turns_red_at_ten_and_blanks_after_a_reset() {
         let data = Provider {
             windows: vec![
                 window(10, Some(NOW + 60)),
-                window(11, Some(NOW + 60)),
+                window(25, Some(NOW + 60)),
+                window(26, Some(NOW + 60)),
                 window(50, Some(NOW)),
             ],
             updated_at: Some(NOW),
@@ -247,11 +278,14 @@ mod tests {
             remaining,
             [
                 line("10%", Tone::Alert),
-                line("11%", Tone::Text),
+                line("25%", Tone::Warn),
+                line("26%", Tone::Text),
                 line("—", Tone::Subtle)
             ]
         );
-        assert_eq!(view.windows[2].reset, "reset passed");
+        let fills: Vec<_> = view.windows.iter().map(|w| w.fill).collect();
+        assert_eq!(fills, [0.1, 0.25, 0.26, 1.0]);
+        assert_eq!(view.windows[3].reset, "passed");
     }
 
     #[test]
@@ -270,7 +304,7 @@ mod tests {
         let view = provider("claude", Some(&data), NOW);
         assert_eq!(
             view.windows[0].burn,
-            line("runs out in 8h 0m — before reset", Tone::Warn)
+            marked(Icon::Alert, "out in 8h 0m", Tone::Warn)
         );
     }
 
@@ -286,7 +320,10 @@ mod tests {
             ..Default::default()
         };
         let view = provider("claude", Some(&data), NOW);
-        assert_eq!(view.windows[0].burn, line("not enough data", Tone::Subtle));
+        assert_eq!(
+            view.windows[0].burn,
+            marked(Icon::Wait, "no trend", Tone::Subtle)
+        );
     }
 
     #[test]
@@ -303,12 +340,12 @@ mod tests {
         };
         let view = provider("codex", Some(&data), NOW);
         assert_eq!(view.name, "Codex");
-        assert_eq!(view.credits.as_deref(), Some("Reset credits: 1 available"));
+        assert_eq!(view.credits.as_deref(), Some("1 reset credit"));
         assert_eq!(
             view.notes,
             [
-                line("Rate limited", Tone::Warn),
-                line("data is 1h 30m old", Tone::Warn)
+                marked(Icon::Alert, "Rate limited", Tone::Warn),
+                marked(Icon::Clock, "data is 1h 30m old", Tone::Warn)
             ]
         );
         assert_eq!(view.lines(), 1 + 2 + 1 + 2);
