@@ -1,0 +1,2 @@
+#!/bin/sh
+printf '%s\n' "$*" >> "$SKETCHYUSAGE_TEST_BAR_LOG"

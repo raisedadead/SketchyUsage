@@ -1,0 +1,3 @@
+#!/bin/sh
+[ -n "$SKETCHYUSAGE_TEST_CODEX_LOG" ] && echo "$*" >> "$SKETCHYUSAGE_TEST_CODEX_LOG"
+exec "$(dirname "$0")/codex-ok" "$@"

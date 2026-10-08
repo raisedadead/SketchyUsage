@@ -1,7 +1,11 @@
+pub mod bar;
 pub mod burn;
 pub mod claude;
+pub mod client;
 pub mod codex;
 pub mod label;
+pub mod paths;
 pub mod policy;
 pub mod provider;
+pub mod server;
 pub mod state;
