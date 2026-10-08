@@ -56,6 +56,7 @@ impl Sandbox {
             .env("SKETCHYUSAGE_SKETCHYBAR", bin.join("sketchybar"))
             .env("SKETCHYUSAGE_TEST_BAR_LOG", self.bar_log())
             .env("SKETCHYUSAGE_TEST_CODEX_LOG", self.codex_log())
+            .env("SKETCHYUSAGE_NO_PANEL", "1")
             .stdin(Stdio::null());
         command
     }
@@ -133,7 +134,8 @@ fn push_sets_both_labels_through_sketchybar() {
     assert!(sandbox.run(&["push"]).status.success());
     assert!(wait_for(|| {
         let log = sandbox.read(&sandbox.bar_log());
-        log.contains("--set usage.claude label=") && log.contains("--set usage.codex label=")
+        log.contains("--set sketchyusage.claude label=")
+            && log.contains("--set sketchyusage.codex label=")
     }));
 }
 
@@ -146,7 +148,8 @@ fn unreachable_server_marks_both_labels() {
     let log = sandbox.read(&sandbox.bar_log());
     assert_eq!(
         log.lines()
-            .filter(|line| *line == "--set usage.claude label=— ! --set usage.codex label=— !")
+            .filter(|line| *line
+                == "--set sketchyusage.claude label=— ! --set sketchyusage.codex label=— !")
             .count(),
         2,
         "{log}"
@@ -173,7 +176,7 @@ fn a_fetch_cycle_records_codex_usage_and_writes_the_heartbeat() {
     assert!(fields[1] >= fields[0] - 1);
     assert!(wait_for(|| sandbox
         .read(&sandbox.bar_log())
-        .contains("usage.codex label=97%")));
+        .contains("sketchyusage.codex label=97%")));
     let saved: serde_json::Value = serde_json::from_str(&sandbox.read(&state)).unwrap();
     assert_eq!(saved["providers"]["claude"]["policy"]["failures"], 0);
     assert!(saved["providers"]["claude"]["error"].is_string());

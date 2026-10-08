@@ -1,7 +1,9 @@
 use std::{process::ExitCode, thread};
 
+use futures::channel::mpsc;
 use sketchyusage::{
     client,
+    panel::{self, Event},
     paths::Paths,
     server::{self, Start},
 };
@@ -22,14 +24,26 @@ fn serve() -> ExitCode {
     let Some(paths) = paths() else {
         return ExitCode::FAILURE;
     };
-    match server::start(paths, Box::new(|| {})) {
+    let (sender, events) = mpsc::unbounded();
+    let toggle = sender.clone();
+    let hook = Box::new(move || {
+        let _ = toggle.unbounded_send(Event::Toggle);
+    });
+    match server::start(paths, hook) {
         Ok(Start::AlreadyRunning) => {
             eprintln!("sketchyusage: another server holds the lock");
             ExitCode::SUCCESS
         }
-        Ok(Start::Running(_server)) => loop {
-            thread::park();
-        },
+        Ok(Start::Running(_server)) if std::env::var_os("SKETCHYUSAGE_NO_PANEL").is_some() => {
+            drop(events);
+            loop {
+                thread::park();
+            }
+        }
+        Ok(Start::Running(server)) => {
+            panel::run(server, sender, events);
+            ExitCode::SUCCESS
+        }
         Err(error) => {
             eprintln!("sketchyusage: serve failed: {error}");
             ExitCode::FAILURE
