@@ -1,0 +1,10 @@
+[package]
+name = "sketchyusage"
+version = "0.1.0"
+edition = "2024"
+license = "ISC"
+description = "Claude and Codex usage for SketchyBar, with a native panel"
+repository = "https://github.com/raisedadead/SketchyUsage"
+publish = false
+
+[dependencies]
