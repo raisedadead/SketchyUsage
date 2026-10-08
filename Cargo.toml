@@ -8,3 +8,5 @@ repository = "https://github.com/raisedadead/SketchyUsage"
 publish = false
 
 [dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
