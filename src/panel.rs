@@ -264,7 +264,12 @@ impl Panel {
 }
 
 impl Render for Panel {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let views = views(&self.server.snapshot(), server::now());
+        let wanted = px(height(&views) as f32);
+        if window.bounds().size.height != wanted {
+            window.resize(size(px(WIDTH as f32), wanted));
+        }
         let sender = self.sender.clone();
         let generation = self.generation;
         let root = div()
@@ -290,11 +295,7 @@ impl Render for Panel {
             Some(font) => root.font_family(font),
             None => root,
         };
-        root.children(
-            views(&self.server.snapshot(), server::now())
-                .iter()
-                .map(|(id, view)| section(id, view)),
-        )
+        root.children(views.iter().map(|(id, view)| section(id, view)))
     }
 }
 

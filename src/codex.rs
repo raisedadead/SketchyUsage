@@ -76,17 +76,17 @@ pub fn decode(result: &Value) -> Fetched {
 }
 
 fn credits(value: &Value) -> Option<ResetCredits> {
-    let available: Vec<&Value> = value["credits"]
-        .as_array()?
-        .iter()
+    let available = u32::try_from(value["availableCount"].as_u64()?).unwrap_or(u32::MAX);
+    let nearest_expiry = value["credits"]
+        .as_array()
+        .into_iter()
+        .flatten()
         .filter(|credit| credit["status"] == "available")
-        .collect();
+        .filter_map(|credit| parse_timestamp(&credit["expiresAt"]))
+        .min();
     Some(ResetCredits {
-        available: available.len() as u32,
-        nearest_expiry: available
-            .iter()
-            .filter_map(|credit| parse_timestamp(&credit["expiresAt"]))
-            .min(),
+        available,
+        nearest_expiry,
     })
 }
 
@@ -133,6 +133,9 @@ fn converse(child: &mut Child, deadline: Duration) -> Result<Fetched, Failure> {
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+        if message.get("method").is_some() {
+            continue;
+        }
         match message["id"].as_i64() {
             Some(1) if message.get("error").is_some() => {
                 return Err(Failure::server("Codex unavailable"));
@@ -141,7 +144,11 @@ fn converse(child: &mut Child, deadline: Duration) -> Result<Fetched, Failure> {
                 send(&mut stdin, &json!({"method": "initialized"}))?;
                 send(
                     &mut stdin,
-                    &json!({"id": 2, "method": "account/rateLimits/read"}),
+                    &json!({
+                        "id": 2,
+                        "method": "account/rateLimits/read",
+                        "params": {"excludeResetCreditDetails": true},
+                    }),
                 )?;
             }
             Some(2) if message.get("error").is_some() => {
@@ -240,6 +247,25 @@ mod tests {
         let fetched = decode(&data);
         assert_eq!(fetched.windows.len(), 1);
         assert_eq!(fetched.credits, None);
+    }
+
+    #[test]
+    fn decode_takes_the_count_when_details_are_skipped() {
+        let mut result = fixture();
+        result["rateLimitResetCredits"]["credits"] = Value::Null;
+        assert_eq!(
+            decode(&result).credits,
+            Some(ResetCredits {
+                available: 3,
+                nearest_expiry: None,
+            })
+        );
+    }
+
+    #[test]
+    fn fetch_ignores_server_requests_that_reuse_an_id() {
+        let fetched = fetch(&fake("codex-chatty")).unwrap();
+        assert!(!fetched.windows.is_empty());
     }
 
     #[test]

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 pub const SUCCESS_INTERVAL: i64 = 15 * 60;
 pub const ATTEMPT_HOLD: i64 = 60 * 60;
 pub const RATE_LIMIT_FLOOR: i64 = 60 * 60;
+pub const RATE_LIMIT_CEILING: i64 = 7 * 24 * 60 * 60;
 pub const LOCAL_RETRY: i64 = 5 * 60;
 pub const FORCE_GAP: i64 = 5 * 60;
 pub const BASE_BACKOFF: i64 = 60 * 60;
@@ -38,7 +39,7 @@ pub fn normalize(state: &ProviderState, now: i64) -> ProviderState {
     let shift = state.attempted_at - now;
     ProviderState {
         attempted_at: now,
-        next_attempt: state.next_attempt - shift,
+        next_attempt: state.next_attempt.saturating_sub(shift),
         ..state.clone()
     }
 }
@@ -47,14 +48,14 @@ pub fn may_fetch(state: &ProviderState, trigger: Trigger, now: i64) -> bool {
     let state = normalize(state, now);
     match trigger {
         Trigger::Background => now >= state.next_attempt,
-        Trigger::Forced => state.last_ok && now >= state.attempted_at + FORCE_GAP,
+        Trigger::Forced => state.last_ok && now >= state.attempted_at.saturating_add(FORCE_GAP),
     }
 }
 
 pub fn begin(state: &ProviderState, now: i64) -> ProviderState {
     ProviderState {
         attempted_at: now,
-        next_attempt: now + ATTEMPT_HOLD,
+        next_attempt: now.saturating_add(ATTEMPT_HOLD),
         last_ok: false,
         ..state.clone()
     }
@@ -66,21 +67,25 @@ pub fn finish(state: &ProviderState, outcome: Outcome, now: i64) -> ProviderStat
         Outcome::Success => {
             next.failures = 0;
             next.last_ok = true;
-            next.next_attempt = now + SUCCESS_INTERVAL;
+            next.next_attempt = now.saturating_add(SUCCESS_INTERVAL);
         }
         Outcome::RateLimited { retry_after } => {
             next.failures = (next.failures + 1).min(MAX_FAILURES);
             next.last_ok = false;
-            next.next_attempt = now + retry_after.unwrap_or(0).max(RATE_LIMIT_FLOOR);
+            next.next_attempt = now.saturating_add(
+                retry_after
+                    .unwrap_or(0)
+                    .clamp(RATE_LIMIT_FLOOR, RATE_LIMIT_CEILING),
+            );
         }
         Outcome::ServerFailure => {
             next.failures = (next.failures + 1).min(MAX_FAILURES);
             next.last_ok = false;
-            next.next_attempt = now + backoff(next.failures);
+            next.next_attempt = now.saturating_add(backoff(next.failures));
         }
         Outcome::LocalFailure => {
             next.last_ok = false;
-            next.next_attempt = now + LOCAL_RETRY;
+            next.next_attempt = now.saturating_add(LOCAL_RETRY);
         }
     }
     next
@@ -200,6 +205,19 @@ mod tests {
             NOW,
         );
         assert_eq!(none.next_attempt, NOW + RATE_LIMIT_FLOOR);
+    }
+
+    #[test]
+    fn rate_limit_caps_a_huge_retry_after() {
+        let state = finish(
+            &begin(&ProviderState::default(), NOW),
+            Outcome::RateLimited {
+                retry_after: Some(i64::MAX),
+            },
+            NOW,
+        );
+        assert_eq!(state.next_attempt, NOW + RATE_LIMIT_CEILING);
+        assert!(!may_fetch(&state, Trigger::Background, NOW + 60));
     }
 
     #[test]

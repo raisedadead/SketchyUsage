@@ -1,0 +1,12 @@
+#!/bin/sh
+fixture="$(cd "$(dirname "$0")/.." && pwd)/fixtures/codex-ratelimits.json"
+while IFS= read -r line; do
+  case "$line" in
+    '{"id":1,'*)
+      printf '%s\n' '{"id":1,"method":"account/chatgptAuthTokens/refresh","params":{}}'
+      printf '%s\n' '{"id":1,"result":{"userAgent":"fake"}}' ;;
+    '{"id":2,'*'"excludeResetCreditDetails":true'*)
+      printf '%s\n' '{"id":2,"method":"item/commandExecution/requestApproval","params":{}}'
+      printf '{"id":2,"result":%s}\n' "$(cat "$fixture")" ;;
+  esac
+done
