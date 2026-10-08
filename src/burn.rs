@@ -11,8 +11,14 @@ pub fn project(samples: &[(i64, f64)], resets_at: Option<i64>) -> Option<Project
     let last = samples.iter().max_by_key(|sample| sample.0)?;
     let span = last.0 - first.0;
     let delta = last.1 - first.1;
-    if span < MIN_SPAN || delta <= 0.0 {
+    if span < MIN_SPAN {
         return None;
+    }
+    if delta <= 0.0 {
+        return Some(Projection {
+            exhausted_at: i64::MAX,
+            before_reset: false,
+        });
     }
     let rate = delta / span as f64;
     let left = (100.0 - last.1).max(0.0);
@@ -44,9 +50,16 @@ mod tests {
     }
 
     #[test]
-    fn needs_a_positive_delta() {
-        assert_eq!(project(&[(NOW - 3600, 20.0), (NOW, 20.0)], None), None);
-        assert_eq!(project(&[(NOW - 3600, 30.0), (NOW, 20.0)], None), None);
+    fn flat_usage_lasts_until_reset() {
+        let flat = Some(Projection {
+            exhausted_at: i64::MAX,
+            before_reset: false,
+        });
+        assert_eq!(
+            project(&[(NOW - 3600, 20.0), (NOW, 20.0)], Some(NOW + 60)),
+            flat
+        );
+        assert_eq!(project(&[(NOW - 3600, 30.0), (NOW, 20.0)], None), flat);
     }
 
     #[test]

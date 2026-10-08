@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::policy::ProviderState;
 
 pub const SAMPLE_RETENTION: i64 = 7 * 24 * 60 * 60;
+const RESET_JITTER: u64 = 60;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct State {
@@ -72,9 +73,18 @@ impl Provider {
     pub fn samples_for(&self, window: &Window) -> Vec<(i64, f64)> {
         self.samples
             .iter()
-            .filter(|sample| sample.window == window.label && sample.resets_at == window.resets_at)
+            .filter(|sample| {
+                sample.window == window.label && same_reset(sample.resets_at, window.resets_at)
+            })
             .map(|sample| (sample.at, sample.used))
             .collect()
+    }
+}
+
+fn same_reset(a: Option<i64>, b: Option<i64>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a.abs_diff(b) <= RESET_JITTER,
+        _ => a == b,
     }
 }
 
@@ -242,6 +252,18 @@ mod tests {
         assert_eq!(
             provider.samples_for(&current),
             vec![(NOW - 3600, 15.0), (NOW, 20.0)]
+        );
+    }
+
+    #[test]
+    fn samples_for_tolerates_reset_jitter() {
+        let mut provider = Provider::default();
+        provider.record(vec![weekly(90, NOW - 1)], None, NOW - 3600);
+        provider.record(vec![weekly(80, NOW)], None, NOW);
+        let current = provider.weekly().unwrap().clone();
+        assert_eq!(
+            provider.samples_for(&current),
+            vec![(NOW - 3600, 10.0), (NOW, 20.0)]
         );
     }
 
