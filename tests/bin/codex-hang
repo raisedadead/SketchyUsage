@@ -1,0 +1,5 @@
+#!/bin/sh
+trap '' TERM
+sleep 30 &
+printf '%s %s\n' "$$" "$!" > "${TMPDIR:-/tmp}/sketchyusage-codex-hang-$PPID"
+wait

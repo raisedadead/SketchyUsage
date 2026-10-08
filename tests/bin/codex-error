@@ -1,0 +1,7 @@
+#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    '{"id":1,'*) printf '%s\n' '{"id":1,"result":{}}' ;;
+    '{"id":2,'*) printf '%s\n' '{"id":2,"error":{"code":-32000,"message":"not logged in"}}' ;;
+  esac
+done
