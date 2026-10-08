@@ -10,3 +10,14 @@ Shows Claude and Codex subscription usage in SketchyBar. A background server fet
 - The server only reads. Token renewal stays with the Claude CLI, and Codex reset credits stay unredeemed.
 - State, cache and logs hold usage data only.
 - Every subprocess and HTTP call carries a hard timeout.
+
+## Release
+
+SketchyUsage uses semantic versions. Homebrew builds it from a git tag.
+
+1. Set `version` in `Cargo.toml`, then run `cargo build` to update `Cargo.lock`.
+1. Run `just check`.
+1. Commit as `chore(release): <version>` on `main`.
+1. Add an annotated tag: `git tag -a v<version> -m 'sketchyusage <version>'`.
+1. The operator pushes `main` and the tag. Push the tag before the formula changes.
+1. Update `Formula/sketchyusage.rb` in `raisedadead/homebrew-tap`. Its `README.md` gives the steps.
