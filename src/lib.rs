@@ -6,6 +6,7 @@ pub mod codex;
 pub mod format;
 pub mod geometry;
 pub mod label;
+pub mod palette;
 pub mod panel;
 pub mod paths;
 pub mod policy;

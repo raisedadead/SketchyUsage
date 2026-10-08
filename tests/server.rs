@@ -149,7 +149,8 @@ fn unreachable_server_marks_both_labels() {
     assert_eq!(
         log.lines()
             .filter(|line| *line
-                == "--set sketchyusage.claude label=— ! --set sketchyusage.codex label=— !")
+                == "--set sketchyusage.claude label=— ! label.color=0xff7f849c \
+                    --set sketchyusage.codex label=— ! label.color=0xff7f849c")
             .count(),
         2,
         "{log}"

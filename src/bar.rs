@@ -1,9 +1,9 @@
 use std::{path::PathBuf, process::Command, time::Duration};
 
-use crate::provider::run_with_timeout;
+use crate::{palette::OVERLAY1, provider::run_with_timeout};
 
 pub const TIMEOUT: Duration = Duration::from_secs(5);
-pub const UNREACHABLE: &str = "— !";
+pub const UNREACHABLE: (&str, u32) = ("— !", OVERLAY1);
 pub const ITEMS: [&str; 2] = ["sketchyusage.claude", "sketchyusage.codex"];
 
 fn binary() -> PathBuf {
@@ -15,16 +15,16 @@ fn binary() -> PathBuf {
         )
 }
 
-pub fn set_labels(claude: &str, codex: &str) -> bool {
+pub fn set_labels(claude: (&str, u32), codex: (&str, u32)) -> bool {
     let mut command = Command::new(binary());
-    command.args([
-        "--set",
-        ITEMS[0],
-        &format!("label={claude}"),
-        "--set",
-        ITEMS[1],
-        &format!("label={codex}"),
-    ]);
+    for (item, (text, color)) in ITEMS.into_iter().zip([claude, codex]) {
+        command.args([
+            "--set".to_owned(),
+            item.to_owned(),
+            format!("label={text}"),
+            format!("label.color=0xff{color:06x}"),
+        ]);
+    }
     run_with_timeout(&mut command, TIMEOUT).is_some_and(|output| output.status.success())
 }
 

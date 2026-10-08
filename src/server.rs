@@ -17,6 +17,7 @@ use std::{
 
 use crate::{
     bar, claude, client, codex, label,
+    palette::{PEACH, TEAL},
     paths::Paths,
     policy::{self, Outcome, Trigger},
     provider::{Failure, Fetched},
@@ -166,13 +167,20 @@ impl Server {
         let (claude, codex, stale_at) = {
             let inner = self.inner.lock().unwrap();
             let providers = &inner.state.providers;
+            let bar = |name, accent| {
+                let provider = providers.get(name);
+                (
+                    label::label(provider, now),
+                    label::color(provider, now, accent),
+                )
+            };
             (
-                label::label(providers.get("claude"), now),
-                label::label(providers.get("codex"), now),
+                bar("claude", PEACH),
+                bar("codex", TEAL),
                 stale_at(&inner.state, now),
             )
         };
-        if !bar::set_labels(&claude, &codex) {
+        if !bar::set_labels((&claude.0, claude.1), (&codex.0, codex.1)) {
             eprintln!("sketchyusage: sketchybar label update failed");
         }
         if let Err(error) = write_atomic(&self.paths.heartbeat, &format!("{now} {stale_at}\n")) {

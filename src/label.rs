@@ -1,14 +1,30 @@
-use crate::state::Provider;
+use crate::{
+    palette::{OVERLAY1, RED, YELLOW},
+    state::{Provider, Window},
+};
 
 pub const STALE_AFTER: i64 = 30 * 60;
+
+fn current(provider: &Provider, now: i64) -> Option<&Window> {
+    provider
+        .weekly()
+        .filter(|window| window.resets_at.is_none_or(|reset| reset > now))
+}
+
+pub fn color(provider: Option<&Provider>, now: i64, accent: u32) -> u32 {
+    match provider.and_then(|provider| current(provider, now)) {
+        None => OVERLAY1,
+        Some(window) if window.remaining <= 10 => RED,
+        Some(window) if window.remaining <= 25 => YELLOW,
+        Some(_) => accent,
+    }
+}
 
 pub fn label(provider: Option<&Provider>, now: i64) -> String {
     let Some(provider) = provider else {
         return "—".into();
     };
-    let current = provider
-        .weekly()
-        .filter(|window| window.resets_at.is_none_or(|reset| reset > now));
+    let current = current(provider, now);
     let stale =
         provider.error.is_some() || provider.updated_at.is_some_and(|at| now - at > STALE_AFTER);
     let base = current.map_or_else(
@@ -21,7 +37,10 @@ pub fn label(provider: Option<&Provider>, now: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::Window;
+    use crate::{
+        palette::{OVERLAY1, PEACH, RED, YELLOW},
+        state::Window,
+    };
 
     const NOW: i64 = 1_800_000_000;
 
@@ -90,6 +109,18 @@ mod tests {
             label(Some(&provider(63, Some(NOW - 1), NOW - 60, None)), NOW),
             "—"
         );
+    }
+
+    #[test]
+    fn colour_follows_the_weekly_remaining_percent() {
+        let at = |remaining| color(Some(&provider(remaining, None, NOW, None)), NOW, PEACH);
+        assert_eq!(at(26), PEACH);
+        assert_eq!(at(25), YELLOW);
+        assert_eq!(at(11), YELLOW);
+        assert_eq!(at(10), RED);
+        assert_eq!(color(None, NOW, PEACH), OVERLAY1);
+        let passed = provider(63, Some(NOW), NOW, None);
+        assert_eq!(color(Some(&passed), NOW, PEACH), OVERLAY1);
     }
 
     #[test]

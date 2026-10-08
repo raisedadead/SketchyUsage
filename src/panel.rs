@@ -18,6 +18,7 @@ use crate::{
     bar,
     format::{self, Line, ProviderView, Tone},
     geometry::{self, Rect},
+    palette::{PEACH, RED, TEAL, YELLOW},
     server::{self, PROVIDERS, Server},
     state::State,
 };
@@ -35,10 +36,6 @@ const MANTLE: u32 = 0x181825;
 const SURFACE2: u32 = 0x585b70;
 const TEXT: u32 = 0xcdd6f4;
 const SUBTEXT: u32 = 0xa6adc8;
-const YELLOW: u32 = 0xf9e2af;
-const RED: u32 = 0xf38ba8;
-const PEACH: u32 = 0xfab387;
-const TEAL: u32 = 0x94e2d5;
 
 type Handler = RcBlock<dyn Fn(NonNull<NSEvent>)>;
 
