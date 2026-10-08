@@ -14,7 +14,7 @@ libc = "0.2.190"
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 futures = "0.3.34"
 gpui = { package = "gpui-pre", version = "=0.3.8" }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit"] }
 gpui_apple = { package = "gpui-pre-apple", version = "=0.3.8", features = ["runtime_shaders"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3.2", features = ["NSEvent", "NSScreen", "block2"] }
