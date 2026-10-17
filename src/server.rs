@@ -105,6 +105,10 @@ impl Server {
         self.inner.lock().unwrap().state.clone()
     }
 
+    pub fn fetching(&self) -> bool {
+        !self.inner.lock().unwrap().in_flight.is_empty()
+    }
+
     pub fn tick(self: &Arc<Self>, trigger: Trigger) {
         let now = now();
         for name in PROVIDERS {

@@ -15,6 +15,7 @@ use crate::{
     state::ResetCredits,
 };
 
+pub const USAGE_PAGE: &str = "https://chatgpt.com/settings/usage";
 pub const DEADLINE: Duration = Duration::from_secs(25);
 pub const GRACE: Duration = Duration::from_secs(3);
 

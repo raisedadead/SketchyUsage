@@ -1,6 +1,6 @@
 # SketchyUsage
 
-Shows the remaining Claude and Codex subscription quota in [SketchyBar](https://felixkratz.github.io/SketchyBar). Click the bar segment to open a panel with the reset countdowns, the burn-rate projection, and the Codex reset credits.
+Shows the remaining Claude and Codex subscription quota in [SketchyBar](https://felixkratz.github.io/SketchyBar). Click the bar segment to open a panel with the reset countdowns, the burn-rate projection, and the Codex reset credits. In the panel, click a provider name to open its usage page, or click the refresh icon to read the usage again.
 
 ```sh
 sketchyusage serve      # fetch the usage, set the bar labels, own the panel
@@ -13,7 +13,7 @@ sketchyusage --version
 
 ## Requests
 
-`serve` reads the usage at most once every 15 minutes for each provider. A panel open reads it again only when the last read was successful and is at least 5 minutes old. After a rate-limit reply, `serve` waits at least 1 hour. After a server error, it waits 1 hour, then up to 6 hours.
+`serve` reads the usage at most once every 15 minutes for each provider. A panel open reads it again only when the last read was successful and is at least 5 minutes old. After a rate-limit reply, `serve` waits at least 1 hour. After a server error, it waits 1 hour, then up to 6 hours. The refresh icon skips these waits, except a rate-limit wait, and reads each provider at most once a minute.
 
 `serve` only reads. It does not refresh the Claude token and does not use the Codex reset credits.
 

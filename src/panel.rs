@@ -1,4 +1,4 @@
-use std::{ptr::NonNull, sync::Arc, time::Duration};
+use std::{ptr::NonNull, sync::Arc, thread, time::Duration};
 
 use block2::RcBlock;
 use futures::{
@@ -7,19 +7,20 @@ use futures::{
 };
 use gpui::{
     ActivationPolicy, App, AsyncApp, Bounds, Context, Div, FocusHandle, FontWeight, KeyBinding,
-    QuitMode, Render, Subscription, Task, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*, px, relative, rgb,
-    size,
+    QuitMode, Render, Stateful, Subscription, Task, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*, px,
+    relative, rgb, size,
 };
 use objc2::{rc::Retained, runtime::AnyObject};
 use objc2_app_kit::{NSEvent, NSEventMask, NSScreen};
 use objc2_foundation::MainThreadMarker;
 
 use crate::{
-    bar,
+    bar, claude, codex,
     format::{self, Icon, Line, ProviderView, Tone},
     geometry::{self, Rect},
     palette::{PEACH, RED, TEAL, YELLOW},
+    policy::Trigger,
     server::{self, PROVIDERS, Server},
     state::State,
 };
@@ -38,6 +39,8 @@ const PERCENT: f32 = 36.0;
 
 const RESET: &str = "\u{F099B}";
 const CREDITS: &str = "\u{F0516}";
+const REFRESH: &str = "\u{F0450}";
+const OPEN: &str = "\u{F03CC}";
 
 const MANTLE: u32 = 0x181825;
 const SURFACE2: u32 = 0x585b70;
@@ -306,21 +309,59 @@ impl Render for Panel {
             None => root,
         };
         let icons = self.fonts.icons;
-        root.children(views.iter().map(|(id, view)| section(id, view, icons)))
+        let mut refresh = Some(refresh(&self.server, icons));
+        root.children(
+            views
+                .iter()
+                .map(|(id, view)| section(id, view, icons, refresh.take())),
+        )
     }
 }
 
-fn section(id: &str, view: &ProviderView, icons: bool) -> Div {
-    let accent = if id == "claude" { PEACH } else { TEAL };
+fn refresh(server: &Arc<Server>, icons: bool) -> Stateful<Div> {
+    let tone = if server.fetching() { SURFACE2 } else { SUBTEXT };
+    let server = server.clone();
+    div()
+        .id("refresh")
+        .cursor_pointer()
+        .text_color(rgb(tone))
+        .hover(|style| style.text_color(rgb(TEXT)))
+        .child(if icons {
+            div().font_family(ICONS).child(REFRESH)
+        } else {
+            div().child("refresh")
+        })
+        .on_click(move |_, _, _| {
+            let server = server.clone();
+            thread::spawn(move || server.tick(Trigger::Manual));
+        })
+}
+
+fn section(id: &str, view: &ProviderView, icons: bool, refresh: Option<Stateful<Div>>) -> Div {
+    let (accent, page) = if id == "claude" {
+        (PEACH, claude::USAGE_PAGE)
+    } else {
+        (TEAL, codex::USAGE_PAGE)
+    };
+    let link = div()
+        .id(format!("{id}-usage"))
+        .flex()
+        .gap_1()
+        .cursor_pointer()
+        .text_color(rgb(accent))
+        .font_weight(FontWeight::BOLD)
+        .child(view.name.clone())
+        .child(
+            div()
+                .text_color(rgb(SUBTEXT))
+                .children(icons.then(|| div().font_family(ICONS).child(OPEN)))
+                .children((!icons).then_some("↗")),
+        )
+        .on_click(move |_, _, cx| cx.open_url(page));
     div()
         .flex()
         .flex_col()
-        .child(
-            div()
-                .text_color(rgb(accent))
-                .font_weight(FontWeight::BOLD)
-                .child(view.name.clone()),
-        )
+        .child(div().flex().justify_between().child(link).children(refresh))
         .children(view.windows.iter().map(|window| {
             div()
                 .child(row(

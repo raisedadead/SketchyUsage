@@ -10,6 +10,7 @@ use crate::{
 };
 
 pub const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
+pub const USAGE_PAGE: &str = "https://claude.ai/settings/usage";
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 pub const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(10);
 
