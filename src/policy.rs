@@ -6,6 +6,7 @@ pub const RATE_LIMIT_FLOOR: i64 = 60 * 60;
 pub const RATE_LIMIT_CEILING: i64 = 7 * 24 * 60 * 60;
 pub const LOCAL_RETRY: i64 = 5 * 60;
 pub const FORCE_GAP: i64 = 5 * 60;
+pub const MANUAL_GAP: i64 = 60;
 pub const BASE_BACKOFF: i64 = 60 * 60;
 pub const MAX_BACKOFF: i64 = 6 * 60 * 60;
 pub const MAX_FAILURES: u32 = 6;
@@ -16,12 +17,15 @@ pub struct ProviderState {
     pub next_attempt: i64,
     pub failures: u32,
     pub last_ok: bool,
+    #[serde(default)]
+    pub firm_hold: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Trigger {
     Background,
     Forced,
+    Manual,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,6 +53,10 @@ pub fn may_fetch(state: &ProviderState, trigger: Trigger, now: i64) -> bool {
     match trigger {
         Trigger::Background => now >= state.next_attempt,
         Trigger::Forced => state.last_ok && now >= state.attempted_at.saturating_add(FORCE_GAP),
+        Trigger::Manual => {
+            !(state.firm_hold && now < state.next_attempt)
+                && now >= state.attempted_at.saturating_add(MANUAL_GAP)
+        }
     }
 }
 
@@ -57,12 +65,14 @@ pub fn begin(state: &ProviderState, now: i64) -> ProviderState {
         attempted_at: now,
         next_attempt: now.saturating_add(ATTEMPT_HOLD),
         last_ok: false,
+        firm_hold: true,
         ..state.clone()
     }
 }
 
 pub fn finish(state: &ProviderState, outcome: Outcome, now: i64) -> ProviderState {
     let mut next = normalize(state, now);
+    next.firm_hold = matches!(outcome, Outcome::RateLimited { .. });
     match outcome {
         Outcome::Success => {
             next.failures = 0;
@@ -125,6 +135,7 @@ mod tests {
         assert_eq!(held.next_attempt, NOW + ATTEMPT_HOLD);
         assert!(!may_fetch(&held, Trigger::Background, NOW + 1));
         assert!(!may_fetch(&held, Trigger::Forced, NOW + FORCE_GAP));
+        assert!(!may_fetch(&held, Trigger::Manual, NOW + MANUAL_GAP));
     }
 
     #[test]
@@ -134,6 +145,7 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&persisted).unwrap()).unwrap();
         assert!(!may_fetch(&reloaded, Trigger::Background, NOW + 10));
         assert!(!may_fetch(&reloaded, Trigger::Forced, NOW + 10));
+        assert!(!may_fetch(&reloaded, Trigger::Manual, NOW + MANUAL_GAP));
         assert!(may_fetch(
             &reloaded,
             Trigger::Background,
@@ -264,6 +276,44 @@ mod tests {
             Trigger::Background,
             earlier + SUCCESS_INTERVAL
         ));
+    }
+
+    #[test]
+    fn manual_fetch_skips_the_failure_backoff() {
+        for outcome in [Outcome::ServerFailure, Outcome::LocalFailure] {
+            let state = finish(&begin(&ok_state(NOW - 7200), NOW), outcome, NOW);
+            assert!(!may_fetch(&state, Trigger::Manual, NOW + MANUAL_GAP - 1));
+            assert!(may_fetch(&state, Trigger::Manual, NOW + MANUAL_GAP));
+        }
+    }
+
+    #[test]
+    fn manual_fetch_skips_the_forced_gap() {
+        let state = ok_state(NOW);
+        assert!(!may_fetch(&state, Trigger::Forced, NOW + MANUAL_GAP));
+        assert!(may_fetch(&state, Trigger::Manual, NOW + MANUAL_GAP));
+    }
+
+    #[test]
+    fn manual_fetch_waits_out_a_rate_limit() {
+        let state = finish(
+            &begin(&ok_state(NOW - 7200), NOW),
+            Outcome::RateLimited {
+                retry_after: Some(7200),
+            },
+            NOW,
+        );
+        let reloaded: ProviderState =
+            serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert!(!may_fetch(&reloaded, Trigger::Manual, NOW + 7199));
+        assert!(may_fetch(&reloaded, Trigger::Manual, NOW + 7200));
+    }
+
+    #[test]
+    fn state_saved_before_manual_refresh_still_loads() {
+        let old = r#"{"attempted_at":1,"next_attempt":2,"failures":0,"last_ok":true}"#;
+        let state: ProviderState = serde_json::from_str(old).unwrap();
+        assert!(!state.firm_hold);
     }
 
     #[test]

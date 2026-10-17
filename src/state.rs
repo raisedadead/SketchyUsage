@@ -162,6 +162,7 @@ mod tests {
                 next_attempt: NOW + 900,
                 failures: 1,
                 last_ok: false,
+                firm_hold: false,
             },
             ..Default::default()
         };
